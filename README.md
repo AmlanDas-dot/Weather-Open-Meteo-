@@ -1,10 +1,10 @@
-# Weather Dashboard 🌦️
+# Weather Dashboard 
 
 A clean, modern, fully-responsive weather dashboard built with React, Vite, and Tailwind CSS. Provides real-time weather tracking, 7-day forecasting, and dynamic temperature trends using OpenWeatherMap APIs.
 
 ---
 
-## 🚀 Features
+## Features
 
 - **Real-Time Weather Data:** Accurate current weather including temperature, "feels like", humidity, wind speed, pressure, UV index, and visibility.
 - **Geocoding City Search:** Autocomplete city names automatically after 2 characters (powered by OpenWeather Geo API).
@@ -20,7 +20,7 @@ A clean, modern, fully-responsive weather dashboard built with React, Vite, and 
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Framework:** React.js (via Vite)
 - **Styling:** Tailwind CSS (Vanilla + utility classes)
@@ -31,7 +31,7 @@ A clean, modern, fully-responsive weather dashboard built with React, Vite, and 
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 weather-dashboard/
@@ -70,7 +70,7 @@ weather-dashboard/
 
 ---
 
-## ⚙️ Installation & API Setup
+## Installation & API Setup
 
 1. **Open the project folder:**
    ```bash
@@ -99,7 +99,7 @@ weather-dashboard/
 
 ---
 
-## 🌍 Deployment
+## Deployment
 
 This project uses Vite, so it is optimized and ready to be deployed to static hosting platforms like Vercel or Netlify, or packaged with Docker.
 
