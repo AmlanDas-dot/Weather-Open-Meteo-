@@ -13,36 +13,45 @@ const CurrentWeather = () => {
   if (!currentWeather) return null;
 
   const deg = unit === 'metric' ? '°C' : '°F';
+  const locationLabel =
+    currentWeather.display || [currentWeather.city, currentWeather.country].filter(Boolean).join(', ');
 
   return (
-    <div className="animate-fade-in rounded-3xl p-6 md:p-8 bg-white/10 backdrop-blur-xl
-                    shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/10">
+    <div className="animate-fade-in rounded-[28px] border border-white/10 bg-slate-950/15 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.18)] backdrop-blur-2xl md:p-8">
       {/* City + date */}
-      <div className="mb-5">
-        <h2 className="text-2xl md:text-3xl font-bold tracking-tight" id="current-city">
-          {currentWeather.city}, {currentWeather.country}
-        </h2>
-        <p className="text-sm opacity-60 mt-0.5">
-          {formatFullDate(Math.floor(Date.now() / 1000))}
-        </p>
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/55">
+            Current Conditions
+          </p>
+          <h2 className="mt-2 text-2xl font-bold tracking-tight text-white md:text-4xl" id="current-city">
+            <span className="break-words">{locationLabel}</span>
+          </h2>
+        </div>
+        <div className="text-sm font-medium text-white/65 sm:text-right">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/45">
+            Local Forecast Date
+          </p>
+          <p className="mt-1">{formatFullDate(currentWeather.observedAt)}</p>
+        </div>
       </div>
 
       {/* Hero row */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-6 mb-6">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center md:gap-5">
           <img
             src={iconUrl(currentWeather.icon, '4x')}
             alt={currentWeather.description}
-            className="w-28 h-28 md:w-36 md:h-36 drop-shadow-2xl -ml-3"
+            className="-ml-3 h-28 w-28 shrink-0 drop-shadow-2xl md:h-36 md:w-36"
           />
-          <div>
-            <p className="text-6xl md:text-8xl font-extrabold leading-none tracking-tighter" id="current-temp">
-              {currentWeather.temp}<span className="text-3xl md:text-4xl font-semibold opacity-70">{deg}</span>
+          <div className="min-w-0">
+            <p className="text-6xl font-extrabold leading-none tracking-tighter text-white md:text-8xl" id="current-temp">
+              {currentWeather.temp}<span className="text-3xl font-semibold opacity-70 md:text-4xl">{deg}</span>
             </p>
-            <p className="capitalize text-lg mt-1.5 opacity-80 font-medium">
+            <p className="mt-2 text-lg font-medium capitalize text-white/85">
               {currentWeather.description}
             </p>
-            <p className="text-sm opacity-50 mt-0.5">
+            <p className="mt-1 text-sm text-white/60">
               Feels like {currentWeather.feelsLike}{deg}  ·  H:{currentWeather.tempMax}{deg}  L:{currentWeather.tempMin}{deg}
             </p>
           </div>

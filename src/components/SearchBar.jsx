@@ -11,13 +11,14 @@ import { fetchCitySuggestions } from '../services/weatherApi';
 import useWeather from '../hooks/useWeather';
 
 const SearchBar = () => {
-  const { fetchWeatherByCity, recentCities, clearRecentCities } = useWeather();
+  const { fetchWeatherByCity, fetchWeatherByCoords, recentCities, clearRecentCities } = useWeather();
 
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef(null);
   const wrapperRef = useRef(null);
+  const suggestionRequestRef = useRef(0);
 
   /* Close on outside click */
   useEffect(() => {
@@ -27,25 +28,40 @@ const SearchBar = () => {
       }
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, []);
+
+  const resetSearch = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    suggestionRequestRef.current += 1;
+    setQuery('');
+    setSuggestions([]);
+    setShowDropdown(false);
+  };
 
   /* Debounced autocomplete */
   const handleChange = (e) => {
     const value = e.target.value;
+    const trimmedValue = value.trim();
     setQuery(value);
     
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (value.trim().length >= 2) {
+    if (trimmedValue.length >= 2) {
+      const requestId = ++suggestionRequestRef.current;
       debounceRef.current = setTimeout(async () => {
-        const results = await fetchCitySuggestions(value.trim());
+        const results = await fetchCitySuggestions(trimmedValue);
+        if (suggestionRequestRef.current !== requestId) return;
         setSuggestions(results);
         setShowDropdown(true);
       }, 300);
     } else {
+      suggestionRequestRef.current += 1;
       setSuggestions([]);
-      setShowDropdown(value.trim().length === 0 && recentCities.length > 0);
+      setShowDropdown(trimmedValue.length === 0 && recentCities.length > 0);
     }
   };
 
@@ -54,11 +70,23 @@ const SearchBar = () => {
     if (query.length >= 2 && suggestions.length > 0) setShowDropdown(true);
   };
 
-  const selectCity = (name) => {
-    setQuery('');
-    setSuggestions([]);
-    setShowDropdown(false);
-    fetchWeatherByCity(name);
+  const selectCity = (location) => {
+    resetSearch();
+
+    if (typeof location === 'string') {
+      fetchWeatherByCity(location);
+      return;
+    }
+
+    if (location?.lat !== null && location?.lat !== undefined &&
+        location?.lon !== null && location?.lon !== undefined) {
+      fetchWeatherByCoords(location.lat, location.lon, location);
+      return;
+    }
+
+    if (location?.name) {
+      fetchWeatherByCity(location.name);
+    }
   };
 
   const handleSubmit = (e) => {
@@ -85,7 +113,7 @@ const SearchBar = () => {
           <button
             type="button"
             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition"
-            onClick={() => { setQuery(''); setSuggestions([]); setShowDropdown(false); }}
+            onClick={resetSearch}
             aria-label="Clear search"
           >
             <FiX size={14} />
@@ -112,14 +140,14 @@ const SearchBar = () => {
                 {suggestions.map((s, i) => (
                   <li key={`${s.lat}-${s.lon}-${i}`}>
                     <button
+                      type="button"
                       className="w-full text-left px-4 py-2.5 text-sm text-white/90 hover:bg-white/10
                                  transition-colors flex items-center gap-3"
-                      onClick={() => selectCity(s.name)}
+                      onClick={() => selectCity(s)}
                       id={`suggestion-${i}`}
                     >
                       <FiMapPin className="text-sky-400/70 shrink-0" size={14} />
-                      <span className="font-medium">{s.name}</span>
-                      <span className="text-white/40 text-xs ml-auto">{s.country}</span>
+                      <span className="font-medium leading-5">{s.display || s.name}</span>
                     </button>
                   </li>
                 ))}
@@ -135,6 +163,7 @@ const SearchBar = () => {
                   Recent Searches
                 </span>
                 <button
+                  type="button"
                   onClick={clearRecentCities}
                   className="text-[10px] text-white/40 hover:text-white/80 transition uppercase tracking-widest font-semibold"
                   id="clear-recent-btn"
@@ -144,15 +173,16 @@ const SearchBar = () => {
               </div>
               <ul>
                 {recentCities.map((c, i) => (
-                  <li key={c + i}>
+                  <li key={`${c.lat ?? 'na'}-${c.lon ?? 'na'}-${c.display || c.name}-${i}`}>
                     <button
+                      type="button"
                       className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/10
                                  transition-colors flex items-center gap-3"
                       onClick={() => selectCity(c)}
                       id={`recent-city-${i}`}
                     >
                       <FiClock className="text-white/30 shrink-0" size={14} />
-                      <span>{c}</span>
+                      <span>{c.display || c.name}</span>
                     </button>
                   </li>
                 ))}

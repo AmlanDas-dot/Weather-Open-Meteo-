@@ -19,10 +19,21 @@ const airQualityApi = axios.create({ baseURL: AIR_QUALITY_BASE_URL, timeout: 100
 export const iconUrl = (code, size = '2x') =>
   `https://openweathermap.org/img/wn/${code}@${size}.png`;
 
-const toUnix = (value) => {
-  if (!value) return null;
-  return Math.floor(new Date(value).getTime() / 1000);
-};
+const getServiceErrorMessage = (error, fallback) =>
+  error?.response?.data?.reason ||
+  error?.response?.data?.error ||
+  error?.message ||
+  fallback;
+
+const buildLocationDisplay = ({ name = '', state = '', country = '' } = {}) =>
+  [name, state, country].filter(Boolean).join(', ') || 'Your Location';
+
+const mapResolvedLocation = (location = {}) => ({
+  name: location.name || 'Your Location',
+  country: location.country || '',
+  state: location.state || '',
+  display: location.display || buildLocationDisplay(location),
+});
 
 const getUnits = (units) => ({
   temperature_unit: units === 'imperial' ? 'fahrenheit' : 'celsius',
@@ -68,14 +79,17 @@ const buildForecastParams = (lat, lon, units) => ({
   longitude: lon,
 });
 
-const normalizeCurrentWeather = (data, cityLabel = 'Your Location') => {
+const normalizeCurrentWeather = (data, location = {}) => {
   const current = data.current;
   const todayIndex = 0;
   const weather = mapWeatherCode(current.weather_code, current.is_day === 1);
+  const resolvedLocation = mapResolvedLocation(location);
 
   return {
-    city: cityLabel,
-    country: '',
+    city: resolvedLocation.name,
+    country: resolvedLocation.country,
+    state: resolvedLocation.state,
+    display: resolvedLocation.display,
     temp: Math.round(current.temperature_2m),
     feelsLike: Math.round(current.apparent_temperature),
     tempMin: Math.round(data.daily.temperature_2m_min[todayIndex]),
@@ -86,9 +100,11 @@ const normalizeCurrentWeather = (data, cityLabel = 'Your Location') => {
     description: weather.description,
     icon: weather.icon,
     main: weather.main,
-    sunrise: toUnix(data.daily.sunrise[todayIndex]),
-    sunset: toUnix(data.daily.sunset[todayIndex]),
-    timezone: data.utc_offset_seconds ?? 0,
+    observedAt: current.time,
+    sunrise: data.daily.sunrise[todayIndex],
+    sunset: data.daily.sunset[todayIndex],
+    timezone: data.timezone || '',
+    utcOffsetSeconds: data.utc_offset_seconds ?? 0,
     coord: { lat: data.latitude, lon: data.longitude },
     visibility: current.visibility,
   };
@@ -102,7 +118,7 @@ const normalizeForecast = (data) => {
     );
 
     return {
-      time: toUnix(time),
+      time,
       temp: Math.round(data.hourly.temperature_2m[index]),
       icon: weather.icon,
       description: weather.description,
@@ -115,7 +131,7 @@ const normalizeForecast = (data) => {
     const weather = mapWeatherCode(data.daily.weather_code[index], true);
 
     return {
-      date: toUnix(time),
+      date: time,
       tempMin: Math.round(data.daily.temperature_2m_min[index]),
       tempMax: Math.round(data.daily.temperature_2m_max[index]),
       icon: weather.icon,
@@ -131,9 +147,11 @@ const normalizeForecast = (data) => {
     daily,
     current: {
       uvi: data.daily.uv_index_max[0],
-      sunrise: toUnix(data.daily.sunrise[0]),
-      sunset: toUnix(data.daily.sunset[0]),
+      observedAt: data.current.time,
+      sunrise: data.daily.sunrise[0],
+      sunset: data.daily.sunset[0],
     },
+    timezone: data.timezone || '',
     timezoneOffset: data.utc_offset_seconds ?? 0,
   };
 };
@@ -173,16 +191,25 @@ const normalizeAirQuality = (data) => {
 };
 
 const fetchForecastPayload = async (lat, lon, units = 'metric') => {
-  const { data } = await forecastApi.get('/forecast', {
-    params: buildForecastParams(lat, lon, units),
-  });
+  try {
+    const { data } = await forecastApi.get('/forecast', {
+      params: buildForecastParams(lat, lon, units),
+    });
 
-  return data;
+    return data;
+  } catch (error) {
+    throw new Error(getServiceErrorMessage(error, 'Could not load weather data'));
+  }
 };
 
 export const fetchCurrentWeather = async (city, units = 'metric') => {
-  const { lat, lon, name, country } = await fetchCityCoordinates(city);
-  const current = await fetchCurrentWeatherByCoords(lat, lon, units, name);
+  const { lat, lon, name, country, state, display } = await fetchCityCoordinates(city);
+  const current = await fetchCurrentWeatherByCoords(lat, lon, units, {
+    name,
+    country,
+    state,
+    display,
+  });
   return {
     ...current,
     country,
@@ -193,14 +220,10 @@ export const fetchCurrentWeatherByCoords = async (
   lat,
   lon,
   units = 'metric',
-  cityLabel = 'Your Location',
-  country = '',
+  location = {},
 ) => {
   const data = await fetchForecastPayload(lat, lon, units);
-  return {
-    ...normalizeCurrentWeather(data, cityLabel),
-    country,
-  };
+  return normalizeCurrentWeather(data, location);
 };
 
 export const fetchForecast = async (lat, lon, units = 'metric') => {
@@ -208,17 +231,38 @@ export const fetchForecast = async (lat, lon, units = 'metric') => {
   return normalizeForecast(data);
 };
 
-export const fetchAirQuality = async (lat, lon) => {
-  const { data } = await airQualityApi.get('/air-quality', {
-    params: {
-      latitude: lat,
-      longitude: lon,
-      timezone: 'auto',
-      current: 'us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide',
-    },
-  });
+export const fetchWeatherBundle = async (lat, lon, units = 'metric', location = {}) => {
+  const data = await fetchForecastPayload(lat, lon, units);
+  const forecast = normalizeForecast(data);
+  const currentWeather = {
+    ...normalizeCurrentWeather(data, location),
+    uvi: forecast.current.uvi,
+  };
 
-  return normalizeAirQuality(data);
+  return {
+    currentWeather,
+    hourlyForecast: forecast.hourly,
+    dailyForecast: forecast.daily,
+    timezone: forecast.timezone,
+    timezoneOffset: forecast.timezoneOffset,
+  };
+};
+
+export const fetchAirQuality = async (lat, lon) => {
+  try {
+    const { data } = await airQualityApi.get('/air-quality', {
+      params: {
+        latitude: lat,
+        longitude: lon,
+        timezone: 'auto',
+        current: 'us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide',
+      },
+    });
+
+    return normalizeAirQuality(data);
+  } catch (error) {
+    throw new Error(getServiceErrorMessage(error, 'Could not load air quality data'));
+  }
 };
 
 export const fetchCityCoordinates = async (cityName) => {
@@ -237,14 +281,26 @@ export const fetchCityCoordinates = async (cityName) => {
     }
 
     const city = data.results[0];
+    const country = city.country_code || city.country || '';
+    const state = city.admin1 || '';
     return {
       lat: city.latitude,
       lon: city.longitude,
       name: city.name,
-      country: city.country_code || city.country || '',
+      country,
+      state,
+      display: buildLocationDisplay({
+        name: city.name,
+        state,
+        country,
+      }),
     };
-  } catch {
-    throw new Error('Could not resolve city location');
+  } catch (error) {
+    if (error.message === 'City not found') {
+      throw error;
+    }
+
+    throw new Error(getServiceErrorMessage(error, 'Could not resolve city location'));
   }
 };
 

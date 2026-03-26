@@ -6,15 +6,13 @@
  * Added 10-minute caching to localStorage.
  */
 
-import { createContext, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  fetchCurrentWeatherByCoords,
-  fetchForecast,
+  fetchWeatherBundle,
   fetchAirQuality,
   fetchCityCoordinates,
 } from '../services/weatherApi';
-
-export const WeatherContext = createContext();
+import { WeatherContext } from './weatherContextInstance';
 
 const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -26,6 +24,52 @@ const readLS = (key, fallback) => {
   } catch {
     return fallback;
   }
+};
+
+const toFiniteNumber = (value) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const normalizeRecentCity = (entry) => {
+  if (!entry) return null;
+
+  if (typeof entry === 'string') {
+    const name = entry.trim();
+    return name
+      ? {
+          name,
+          country: '',
+          state: '',
+          display: name,
+          lat: null,
+          lon: null,
+        }
+      : null;
+  }
+
+  const name = (entry.name || entry.city || '').trim();
+  if (!name) return null;
+
+  const country = entry.country || '';
+  const state = entry.state || '';
+  const lat = toFiniteNumber(entry.lat ?? entry.coord?.lat);
+  const lon = toFiniteNumber(entry.lon ?? entry.coord?.lon);
+
+  return {
+    name,
+    country,
+    state,
+    display: entry.display || [name, state, country].filter(Boolean).join(', ') || name,
+    lat,
+    lon,
+  };
+};
+
+const getRecentCityKey = (entry) => {
+  if (entry.lat !== null && entry.lon !== null) {
+    return `${entry.lat.toFixed(4)}:${entry.lon.toFixed(4)}`;
+  }
+
+  return [entry.name, entry.state, entry.country].join('|').toLowerCase();
 };
 
 export const WeatherProvider = ({ children }) => {
@@ -40,7 +84,13 @@ export const WeatherProvider = ({ children }) => {
   const [error, setError] = useState(null);
   
   const [unit, setUnit] = useState(() => readLS('temperatureUnit', 'metric'));
-  const [recentCities, setRecentCities] = useState(() => readLS('recentCities', []));
+  const [recentCities, setRecentCities] = useState(() => {
+    const stored = readLS('recentCities', []);
+    return Array.isArray(stored)
+      ? stored.map(normalizeRecentCity).filter(Boolean)
+      : [];
+  });
+  const requestIdRef = useRef(0);
 
   /* ─── persist units/recent ─── */
   useEffect(() => {
@@ -52,10 +102,13 @@ export const WeatherProvider = ({ children }) => {
   }, [recentCities]);
 
   /* ─── recent cities (max 5) ─── */
-  const addRecentCity = useCallback((name) => {
+  const addRecentCity = useCallback((location) => {
+    const nextCity = normalizeRecentCity(location);
+    if (!nextCity) return;
+
     setRecentCities((prev) => {
-      const filtered = prev.filter((c) => c.toLowerCase() !== name.toLowerCase());
-      return [name, ...filtered].slice(0, 5);
+      const filtered = prev.filter((cityEntry) => getRecentCityKey(cityEntry) !== getRecentCityKey(nextCity));
+      return [nextCity, ...filtered].slice(0, 5);
     });
   }, []);
 
@@ -77,80 +130,98 @@ export const WeatherProvider = ({ children }) => {
   };
 
   /* ─── fetch by coords ─── */
-  const fetchWeatherByCoords = useCallback(
-    async (lat, lon, resolvedLocation = {}) => {
+  const loadWeatherByCoords = useCallback(
+    async (lat, lon, resolvedLocation = {}, requestId) => {
       setLoading(true);
       setError(null);
+
+      const locationDetails =
+        normalizeRecentCity({
+          ...resolvedLocation,
+          lat,
+          lon,
+          name: resolvedLocation.name || resolvedLocation.city || 'Your Location',
+        }) || {
+          name: 'Your Location',
+          country: '',
+          state: '',
+          display: 'Your Location',
+          lat,
+          lon,
+        };
+
       try {
         const cached = getCache(lat, lon, unit);
         if (cached) {
+          if (requestIdRef.current !== requestId) return;
           setCurrentWeather(cached.currentWeather);
           setHourlyForecast(cached.hourlyForecast);
           setDailyForecast(cached.dailyForecast);
           setAirQuality(cached.airQuality);
           setCity(cached.currentWeather.city);
-          addRecentCity(cached.currentWeather.city);
-          setLoading(false);
+          addRecentCity(cached.currentWeather);
           return;
         }
 
         // Fetch all in parallel using lat/lon
-        const [current, forecast, aqi] = await Promise.all([
-          fetchCurrentWeatherByCoords(
-            lat,
-            lon,
-            unit,
-            resolvedLocation.name || 'Your Location',
-            resolvedLocation.country || '',
-          ),
-          fetchForecast(lat, lon, unit),
-          fetchAirQuality(lat, lon),
+        const [weatherBundle, aqi] = await Promise.all([
+          fetchWeatherBundle(lat, lon, unit, locationDetails),
+          fetchAirQuality(lat, lon).catch(() => null),
         ]);
 
-        const mergedCurrent = {
-          ...current,
-          uvi: forecast?.current?.uvi // attach UVI from forecast data
-        };
+        if (requestIdRef.current !== requestId) return;
 
-        setCurrentWeather(mergedCurrent);
-        setHourlyForecast(forecast.hourly);
-        setDailyForecast(forecast.daily);
+        setCurrentWeather(weatherBundle.currentWeather);
+        setHourlyForecast(weatherBundle.hourlyForecast);
+        setDailyForecast(weatherBundle.dailyForecast);
         setAirQuality(aqi);
-        setCity(mergedCurrent.city);
-        addRecentCity(mergedCurrent.city);
+        setCity(weatherBundle.currentWeather.city);
+        addRecentCity(weatherBundle.currentWeather);
 
         // Save to cache
         setCache(lat, lon, unit, {
-          currentWeather: mergedCurrent,
-          hourlyForecast: forecast.hourly,
-          dailyForecast: forecast.daily,
+          currentWeather: weatherBundle.currentWeather,
+          hourlyForecast: weatherBundle.hourlyForecast,
+          dailyForecast: weatherBundle.dailyForecast,
           airQuality: aqi,
         });
       } catch (err) {
+        if (requestIdRef.current !== requestId) return;
         setError(err.message);
       } finally {
-        setLoading(false);
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+        }
       }
     },
     [unit, addRecentCity],
   );
 
+  const fetchWeatherByCoords = useCallback(
+    async (lat, lon, resolvedLocation = {}) => {
+      const requestId = ++requestIdRef.current;
+      await loadWeatherByCoords(lat, lon, resolvedLocation, requestId);
+    },
+    [loadWeatherByCoords],
+  );
+
   /* ─── fetch by city (Geocode then Coords) ─── */
   const fetchWeatherByCity = useCallback(
     async (cityName) => {
+      const requestId = ++requestIdRef.current;
       setLoading(true);
       setError(null);
       try {
-        const { lat, lon, name, country } = await fetchCityCoordinates(cityName);
-        await fetchWeatherByCoords(lat, lon, { name, country });
-        // Ensure city name is exactly what geocode matched
-        setCity(name);
+        const resolvedLocation = await fetchCityCoordinates(cityName);
+        if (requestIdRef.current !== requestId) return;
+        await loadWeatherByCoords(resolvedLocation.lat, resolvedLocation.lon, resolvedLocation, requestId);
       } catch (err) {
+        if (requestIdRef.current !== requestId) return;
         setError(err.message);
         setLoading(false);
       }
     },
-    [fetchWeatherByCoords],
+    [loadWeatherByCoords],
   );
 
   /* ─── toggle unit ─── */
@@ -160,6 +231,16 @@ export const WeatherProvider = ({ children }) => {
 
   // Re-fetch when unit changes
   useEffect(() => {
+    if (currentWeather?.coord) {
+      fetchWeatherByCoords(currentWeather.coord.lat, currentWeather.coord.lon, {
+        name: currentWeather.city,
+        country: currentWeather.country,
+        state: currentWeather.state,
+        display: currentWeather.display,
+      });
+      return;
+    }
+
     if (city) fetchWeatherByCity(city);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unit]);
@@ -177,24 +258,41 @@ export const WeatherProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const value = useMemo(
+    () => ({
+      city,
+      currentWeather,
+      hourlyForecast,
+      dailyForecast,
+      airQuality,
+      loading,
+      error,
+      unit,
+      recentCities,
+      fetchWeatherByCity,
+      fetchWeatherByCoords,
+      toggleUnit,
+      clearRecentCities,
+    }),
+    [
+      city,
+      currentWeather,
+      hourlyForecast,
+      dailyForecast,
+      airQuality,
+      loading,
+      error,
+      unit,
+      recentCities,
+      fetchWeatherByCity,
+      fetchWeatherByCoords,
+      toggleUnit,
+      clearRecentCities,
+    ],
+  );
+
   return (
-    <WeatherContext.Provider
-      value={{
-        city,
-        currentWeather,
-        hourlyForecast,
-        dailyForecast,
-        airQuality,
-        loading,
-        error,
-        unit,
-        recentCities,
-        fetchWeatherByCity,
-        fetchWeatherByCoords,
-        toggleUnit,
-        clearRecentCities,
-      }}
-    >
+    <WeatherContext.Provider value={value}>
       {children}
     </WeatherContext.Provider>
   );

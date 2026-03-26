@@ -17,7 +17,7 @@ import AirQuality from '../components/AirQuality';
 import { WiCloudRefresh } from 'react-icons/wi';
 
 const Dashboard = () => {
-  const { currentWeather, loading, error, fetchWeatherByCity, city } = useWeather();
+  const { currentWeather, loading, error, fetchWeatherByCity } = useWeather();
 
   const theme = getWeatherTheme(currentWeather?.main);
 
@@ -55,6 +55,11 @@ const Dashboard = () => {
 
   return (
     <div className={`min-h-screen ${theme.bgClass} ${theme.gradient} ${theme.textClass} transition-all duration-1000 relative`}>
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute left-[-12%] top-[-10%] h-64 w-64 rounded-full bg-white/10 blur-3xl" />
+        <div className="absolute bottom-[-8%] right-[-10%] h-72 w-72 rounded-full bg-sky-300/10 blur-3xl" />
+      </div>
+
       {/* Optional loading overlay when refetching, so user knows it's thinking */}
       {loading && currentWeather && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/10 backdrop-blur-[2px]">
@@ -62,16 +67,25 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
+      <div className="relative mx-auto max-w-7xl px-4 py-5 space-y-5 md:px-6 md:py-7">
         <Navbar />
+
+        {error && currentWeather && (
+          <div className="rounded-2xl border border-red-200/20 bg-red-500/15 px-4 py-3 text-sm text-white/90 shadow-lg backdrop-blur-xl">
+            {error}
+          </div>
+        )}
+
         <CurrentWeather />
         <WeatherDetails />
         <HourlyForecast />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)]">
           <SevenDayForecast />
-          <TemperatureChart />
-          <AirQuality />
+          <div className="grid gap-5">
+            <TemperatureChart />
+            <AirQuality />
+          </div>
         </div>
 
         <footer className="text-center text-xs opacity-30 pb-4 pt-2">

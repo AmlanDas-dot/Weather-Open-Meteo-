@@ -10,6 +10,7 @@ import {
   XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
 import useWeather from '../hooks/useWeather';
+import { formatDay } from '../utils/formatDate';
 
 const TemperatureChart = () => {
   const { dailyForecast, unit } = useWeather();
@@ -18,10 +19,6 @@ const TemperatureChart = () => {
   /* Memoize chart data — re-computes when forecast changes */
   const chartData = useMemo(() => {
     if (!dailyForecast?.length) return [];
-    
-    const formatDay = (timestamp) => {
-      return new Date(timestamp * 1000).toLocaleDateString('en-US', { weekday: 'short' });
-    };
 
     return dailyForecast.map((d, i) => ({
       day: i === 0 ? 'Today' : formatDay(d.date),
@@ -37,7 +34,7 @@ const TemperatureChart = () => {
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     return (
-      <div className="bg-slate-900/95 backdrop-blur-xl rounded-xl px-4 py-3 shadow-2xl border border-white/10">
+      <div className="rounded-xl border border-white/10 bg-slate-900/95 px-4 py-3 shadow-2xl backdrop-blur-xl">
         <p className="font-semibold text-sm mb-1.5 text-white">{label}</p>
         <p className="text-orange-300 text-sm">↑ High: {payload[0]?.value}{degSymbol}</p>
         <p className="text-sky-300 text-sm">↓ Low: {payload[1]?.value}{degSymbol}</p>
@@ -46,11 +43,15 @@ const TemperatureChart = () => {
   };
 
   return (
-    <div className="animate-slide-up rounded-3xl p-5 bg-white/10 backdrop-blur-xl
-                    shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/10">
-      <h3 className="text-lg font-semibold mb-4">Temperature Trend</h3>
+    <div className="animate-slide-up rounded-[28px] border border-white/10 bg-slate-950/15 p-5 shadow-[0_18px_48px_rgba(15,23,42,0.14)] backdrop-blur-2xl">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold text-white">Temperature Trend</h3>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+          Highs & Lows
+        </span>
+      </div>
 
-      <ResponsiveContainer key={chartKey} width="100%" height={260}>
+      <ResponsiveContainer key={chartKey} width="100%" height={280}>
         <AreaChart data={chartData} margin={{ top: 10, right: 15, left: -5, bottom: 5 }}>
           <defs>
             <linearGradient id="gradMax" x1="0" y1="0" x2="0" y2="1">
